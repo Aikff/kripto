@@ -5,122 +5,114 @@ import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 from core.engine import CryptoEngine
 
-# --- 1. SAYFA AYARLARI ---
+# --- 1. SAYFA VE TASARIM AYARLARI ---
 st.set_page_config(layout="wide", page_title="Kripto Tracker", page_icon="🧊")
 
-# --- 2. OTOMATİK YENİLEME (REAL-TIME) ---
-# Sayfayı her 60 saniyede bir (60000ms) yeniler.
-# Render'da RAM şişmesin diye süre makul tutulmalı.
-count = st_autorefresh(interval=60000, limit=None, key="facer")
+# Otomatik Yenileme: Her 5 dakikada bir (300.000ms)
+# Tüm coinleri taramak uzun sürdüğü için 1 dk yerine 5 dk daha sağlıklıdır.
+st_autorefresh(interval=300000, key="datarefresh")
 
-# --- 3. CUSTOM CSS (RESİMDEKİ UI TASARIMI) ---
+# --- CSS ENJEKSİYONU (DARK UI) ---
 st.markdown("""
 <style>
-    /* Ana Arka Plan (Deep Dark Blue) */
-    .stApp {
-        background-color: #0e1117;
-    }
+    /* Ana Arka Plan */
+    .stApp { background-color: #0d1117; }
     
-    /* Tablo Başlıkları */
-    thead tr th:first-child { display:none }
-    tbody th { display:none }
-    
-    /* Kart Görünümü (Dataframe Konteynerleri) */
-    [data-testid="stDataFrame"] {
+    /* Kart Yapısı */
+    div[data-testid="stDataFrame"] {
         background-color: #161b22;
-        padding: 10px;
-        border-radius: 12px;
         border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 10px;
     }
     
     /* Başlıklar */
-    h1, h2, h3 {
-        color: #e6edf3 !important;
-        font-family: 'Inter', sans-serif;
-    }
+    h1, h2, h3 { color: #c9d1d9 !important; font-family: sans-serif; }
+    p { color: #8b949e !important; }
     
-    /* Alt Başlıklar */
-    p {
-        color: #8b949e;
-    }
-    
-    /* Yeşil Artış Yazısı (Custom Metric) */
-    .positive-val {
-        color: #3fb950;
-        font-weight: bold;
-        background-color: rgba(63, 185, 80, 0.1);
-        padding: 2px 8px;
-        border-radius: 6px;
-    }
+    /* Metrik Renkleri */
+    div[data-testid="stMetricValue"] { color: #3fb950; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. BAŞLIK ALANI ---
-c1, c2 = st.columns([0.8, 0.2])
+# --- 2. HEADER ---
+c1, c2 = st.columns([0.85, 0.15])
 with c1:
     st.title("Kripto Tracker Dashboard")
-    st.markdown("Real-time crypto analysis based on EMA & SMA indicators.")
+    st.markdown("Real-time analysis: All Active Binance Futures Coins")
 with c2:
-    # Manuel Yenileme Butonu
-    if st.button("🔄 Yenile"):
+    if st.button("🔄 Tara", use_container_width=True):
         st.rerun()
 
 st.divider()
 
-# --- 5. VERİ ÇEKME ---
+# --- 3. VERİ TARAMA SÜRECİ ---
 engine = CryptoEngine()
 
-# Spinner ile yükleniyor efekti
-with st.spinner('Piyasa taranıyor... (Binance Futures)'):
-    # En hacimli 40 coini tara (Hız için)
-    top_coins = engine.get_top_volume_coins(limit=40)
-    df_ema, df_sma = engine.fetch_and_analyze(top_coins)
+# İlk açılışta veya yenilemede çalışır
+status_text = st.empty()
+progress_bar = st.progress(0, text="Piyasa verileri alınıyor...")
 
-# --- 6. İKİLİ KART YAPISI (GRID) ---
-col_left, col_right = st.columns(2)
+try:
+    # 1. Tüm Sembolleri Getir
+    all_symbols = engine.get_all_futures_symbols()
+    status_text.text(f"Toplam {len(all_symbols)} aktif coin bulundu. Analiz başlıyor...")
+    
+    # 2. Analiz Et (İlerleme çubuğu ile)
+    df_ema, df_sma = engine.fetch_and_analyze(all_symbols, progress_bar)
+    
+    # İşlem bitince barı temizle
+    progress_bar.empty()
+    status_text.empty()
 
-# --- SOL KART: EMA 25 ---
-with col_left:
-    st.subheader("Above 25 EMA (1-Day)")
-    if not df_ema.empty:
-        st.dataframe(
-            df_ema,
-            column_config={
-                "Asset": st.column_config.TextColumn("Asset", width="small"),
-                "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
-                "EMA Value": st.column_config.NumberColumn("EMA Value", format="$%.4f"),
-                "Deviation %": st.column_config.NumberColumn(
-                    "Deviation %",
-                    format="%.2f%%",
-                    help="Fiyatın ortalamadan uzaklığı"
-                )
-            },
-            hide_index=True,
-            use_container_width=True,
-            height=500
-        )
-    else:
-        st.info("EMA 25 üzerinde coin bulunamadı.")
+    # --- 4. SONUÇLARI GÖSTER (GRID) ---
+    col_left, col_right = st.columns(2)
 
-# --- SAĞ KART: SMA 50 ---
-with col_right:
-    st.subheader("Above 50 SMA (1-Day)")
-    if not df_sma.empty:
-        st.dataframe(
-            df_sma,
-            column_config={
-                "Asset": st.column_config.TextColumn("Asset", width="small"),
-                "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
-                "SMA Value": st.column_config.NumberColumn("SMA Value", format="$%.4f"),
-                "Deviation %": st.column_config.NumberColumn(
-                    "Deviation %",
-                    format="%.2f%%",
-                    help="Fiyatın ortalamadan uzaklığı"
-                )
-            },
-            hide_index=True,
-            use_container_width=True,
-            height=500
-        )
-    else:
-        st.info("SMA 50 üzerinde coin bulunamadı.")
+    # SOL KART: EMA 25
+    with col_left:
+        st.subheader(f"Above 25 EMA (1-Day) - {len(df_ema)}")
+        if not df_ema.empty:
+            st.dataframe(
+                df_ema,
+                column_config={
+                    "Asset": st.column_config.TextColumn("Asset", width="small"),
+                    "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
+                    "EMA Value": st.column_config.NumberColumn("EMA Value", format="$%.4f"),
+                    "Deviation %": st.column_config.NumberColumn(
+                        "Deviation %",
+                        format="%.2f%%",
+                        help="Yeşil oran, fiyatın ortalamadan ne kadar yukarıda olduğunu gösterir."
+                    )
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=600
+            )
+        else:
+            st.warning("EMA 25 üzerinde coin yok.")
+
+    # SAĞ KART: SMA 50
+    with col_right:
+        st.subheader(f"Above 50 SMA (1-Day) - {len(df_sma)}")
+        if not df_sma.empty:
+            st.dataframe(
+                df_sma,
+                column_config={
+                    "Asset": st.column_config.TextColumn("Asset", width="small"),
+                    "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
+                    "SMA Value": st.column_config.NumberColumn("SMA Value", format="$%.4f"),
+                    "Deviation %": st.column_config.NumberColumn(
+                        "Deviation %",
+                        format="%.2f%%",
+                        help="Yeşil oran, fiyatın ortalamadan ne kadar yukarıda olduğunu gösterir."
+                    )
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=600
+            )
+        else:
+            st.warning("SMA 50 üzerinde coin yok.")
+
+except Exception as e:
+    st.error(f"Bir hata oluştu: {e}")
